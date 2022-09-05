@@ -27,7 +27,7 @@ namespace JetBrains.ReSharper.Plugins.FSharp.Psi.Resolve
         if (binaryAppExpr is not { ShortName: "=" })
           return null;
 
-        var innerExpr = (IFSharpExpression) TupleExprNavigator.GetByExpression(binaryAppExpr) ?? binaryAppExpr;
+        var innerExpr = (IFSharpExpression)TupleExprNavigator.GetByExpression(binaryAppExpr) ?? binaryAppExpr;
         var parenExpr = ParenOrBeginEndExprNavigator.GetByInnerExpression(innerExpr);
 
         if (!(PrefixAppExprNavigator.GetByArgumentExpression(parenExpr)?.FunctionExpression is IReferenceExpr expr))
@@ -70,7 +70,13 @@ namespace JetBrains.ReSharper.Plugins.FSharp.Psi.Resolve
       return field?.GetDeclaredElement(referenceOwner.GetPsiModule(), referenceOwner);
     }
 
-    public static IReadOnlyList<IReadOnlyList<(string name, DocumentRange range)>> GetParametersGroupNames(ITreeNode node) =>
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="node"></param>
+    /// <param name="node"></param>
+    /// <returns></returns>
+    public static IReadOnlyList<IReadOnlyList<(string name, ITreeNode node)>> GetParametersGroupNames(ITreeNode node) =>
       (node switch
       {
         IBinding binding => binding.Expression is ILambdaExpr lambda
@@ -110,7 +116,7 @@ namespace JetBrains.ReSharper.Plugins.FSharp.Psi.Resolve
       _ => false
     };
 
-    private static IEnumerable<IEnumerable<(string, DocumentRange)>> GetLambdaArgs(ILambdaExpr expr)
+    private static IEnumerable<IEnumerable<(string, ITreeNode)>> GetLambdaArgs(ILambdaExpr expr)
     {
       var lambdaParams = expr.Patterns;
       var parameters = lambdaParams.Select(GetParameterNames);
@@ -119,28 +125,28 @@ namespace JetBrains.ReSharper.Plugins.FSharp.Psi.Resolve
       return parameters;
     }
 
-    public static IEnumerable<(string, DocumentRange)> GetParameterNames(this IFSharpPattern pattern)
+    public static IEnumerable<(string, ITreeNode)> GetParameterNames(this IFSharpPattern pattern)
     {
-      IEnumerable<(string, DocumentRange)> GetParameterNamesInternal(IFSharpPattern pat, bool isTopLevelParameter)
+      IEnumerable<(string, ITreeNode)> GetParameterNamesInternal(IFSharpPattern pat, bool isTopLevelParameter)
       {
         pat = pat.IgnoreInnerParens();
         return pat switch
         {
-          ILocalReferencePat local => new[] { (local.SourceName, local.GetDocumentRange()) },
+          ILocalReferencePat local => new[] { (local.SourceName, (ITreeNode)local) },
           IOptionalValPat opt => GetParameterNamesInternal(opt.Pattern, isTopLevelParameter),
           ITypedPat typed => GetParameterNamesInternal(typed.Pattern, false),
           IAttribPat attrib => GetParameterNamesInternal(attrib.Pattern, false),
           IAsPat asPat => GetParameterNamesInternal(asPat.RightPattern, false),
           ITuplePat tuplePat when isTopLevelParameter =>
             tuplePat.PatternsEnumerable.SelectMany(t => GetParameterNamesInternal(t, false)),
-          _ => new[] { (SharedImplUtil.MISSING_DECLARATION_NAME, DocumentRange.InvalidRange) }
+          var x => new[] { (SharedImplUtil.MISSING_DECLARATION_NAME, (ITreeNode)x) }
         };
       }
 
       return GetParameterNamesInternal(pattern, true);
     }
 
-    public static IEnumerable<IEnumerable<(string, DocumentRange)>> GetParameterNames(this ITypeUsage pattern) =>
+    public static IEnumerable<IEnumerable<(string, ITreeNode)>> GetParameterNames(this ITypeUsage pattern) =>
       pattern switch
       {
         IParenTypeUsage parenUsage => GetParameterNames(parenUsage.InnerTypeUsage),
@@ -151,17 +157,17 @@ namespace JetBrains.ReSharper.Plugins.FSharp.Psi.Resolve
             new[]
             {
               local.Identifier is { } identifier
-                ? (identifier.Name, local.GetDocumentRange())
-                : (SharedImplUtil.MISSING_DECLARATION_NAME, DocumentRange.InvalidRange)
+                ? (identifier.Name, (ITreeNode)local)
+                : (SharedImplUtil.MISSING_DECLARATION_NAME, null)
             }
           },
         IFunctionTypeUsage funPat =>
           GetParameterNames(funPat.ArgumentTypeUsage).Union(GetParameterNames(funPat.ReturnTypeUsage)),
         ITupleTypeUsage tuplePat => tuplePat.Items.SelectMany(GetParameterNames),
-        _ => EmptyList<IEnumerable<(string, DocumentRange)>>.Enumerable
+        _ => EmptyList<IEnumerable<(string, ITreeNode)>>.Enumerable
       };
 
-    public static IReadOnlyList<IReadOnlyList<(string, DocumentRange)>> GetParametersGroups(this IBinding binding)
+    public static IReadOnlyList<IReadOnlyList<(string, ITreeNode)>> GetParametersGroups(this IBinding binding)
     {
       var parameters = binding.ParameterPatterns.Select(GetParameterNames);
       var bodyExpr = binding.Expression;
