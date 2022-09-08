@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using JetBrains.Application.Processes;
 using JetBrains.Application.Threading;
 using JetBrains.Core;
@@ -47,11 +48,11 @@ namespace JetBrains.ReSharper.Plugins.FSharp.TypeProviders.Protocol
 
     private ProcessStartInfo GetCoreProcessStartInfo(int port, FileSystemPath basePath)
     {
-      var sdkMajorVersion = myNuGetVersion.Major.Clamp(3, 7);
-      var runtimeConfigPath = basePath / TypeProvidersProtocolConstants.CoreRuntimeConfigFilename(sdkMajorVersion);
+      var runVersion = new NuGetVersion(myNuGetVersion.Major, 0, 0,
+        myNuGetVersion.ReleaseLabels.Take(1).Union(new[] { "0", "0", "0" }), "");
+      var runtimeConfigPath = basePath / TypeProvidersProtocolConstants.CoreRuntimeConfigFilename(3);
       var fileSystemPath = basePath / TypeProvidersProtocolConstants.TypeProvidersHostCoreFilename;
-      var dotnetArgs = $"--runtimeconfig \"{runtimeConfigPath}\"";
-
+      var dotnetArgs = $"--fx-version {runVersion} --runtimeconfig \"{runtimeConfigPath}\"";
       Assertion.Assert(fileSystemPath.ExistsFile, $"can't find '{fileSystemPath.FullPath}'");
       Assertion.Assert(runtimeConfigPath.ExistsFile, $"can't find '{runtimeConfigPath.FullPath}'");
 
