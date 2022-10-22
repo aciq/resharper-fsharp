@@ -97,6 +97,9 @@ type FcsProjectBuilder(lifetime: Lifetime, checkerService: FcsCheckerService, it
     let unusedValuesWarns =
         [| "--warnon:1182" |]
 
+    let xmlDocsNoWarns =
+        [| "--nowarn:3390" |]
+
     let getOutputType (outputType: ProjectOutputType) =
         match outputType with
         | ProjectOutputType.CONSOLE_EXE -> "exe"
@@ -152,6 +155,7 @@ type FcsProjectBuilder(lifetime: Lifetime, checkerService: FcsCheckerService, it
 
         otherOptions.AddRange(defaultOptions)
         otherOptions.AddRange(unusedValuesWarns)
+        otherOptions.AddRange(xmlDocsNoWarns)
 
         match projectProperties.ActiveConfigurations.TryGetConfiguration(targetFrameworkId) with
         | :? IManagedProjectConfiguration as cfg ->
