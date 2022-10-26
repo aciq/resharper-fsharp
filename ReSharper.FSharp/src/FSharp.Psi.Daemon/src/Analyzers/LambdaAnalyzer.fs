@@ -185,6 +185,34 @@ type LambdaAnalyzer() =
             | _ -> ctor arg
         | _ -> ctor arg
 
+    let rec checkIsNotLazy (expression: IFSharpExpression) =
+        let rec checkIsNotLazyInternal (parentExpr: IFSharpExpression) (expression: IFSharpExpression) =
+            match expression.IgnoreInnerParens() with
+            | null
+            | :? IUnitExpr
+            | :? ILambdaExpr
+            | :? ILiteralExpr -> true
+            | :? IIfThenElseExpr as expr ->
+                checkIsNotLazyInternal expr expr.ConditionExpr &&
+                checkIsNotLazyInternal expr expr.ThenExpr &&
+                checkIsNotLazyInternal expr expr.ElseExpr
+            | :? ITupleExpr as expr ->
+                expr.ExpressionsEnumerable |> Seq.forall (checkIsNotLazyInternal expr)
+            | :? IPrefixAppExpr as expr ->
+                checkIsNotLazyInternal expr expr.FunctionExpression &&
+                checkIsNotLazyInternal expr expr.ArgumentExpression
+            | :? IBinaryAppExpr as expr ->
+                checkIsNotLazyInternal expr expr.LeftArgument &&
+                checkIsNotLazyInternal expr expr.RightArgument
+            | :? IReferenceExpr as expr ->
+               match expr.Reference.GetFcsSymbol() with
+               | :? FSharpMemberOrFunctionOrValue as m ->
+                   not (m.IsProperty || m.IsMethod && parentExpr :? IPrefixAppExpr)
+               | _ -> checkIsNotLazyInternal expr expr.Qualifier
+            | _ -> false
+
+        checkIsNotLazyInternal null expression
+
     let isApplicable (expr: IFSharpExpression) (pats: TreeNodeCollection<IFSharpPattern>) =
         match expr with
         | :? IPrefixAppExpr
@@ -203,9 +231,13 @@ type LambdaAnalyzer() =
         let warning: IHighlighting =
             match compareArgs pats expr with
             | true, true, replaceCandidate ->
-                tryCreateWarning LambdaCanBeReplacedWithInnerExpressionWarning (lambda, replaceCandidate) isFsharp60Supported :> _
+                if checkIsNotLazy replaceCandidate then
+                    tryCreateWarning LambdaCanBeReplacedWithInnerExpressionWarning (lambda, replaceCandidate) isFsharp60Supported :> _
+                else null
             | true, false, replaceCandidate ->
-                tryCreateWarning LambdaCanBeSimplifiedWarning (lambda, replaceCandidate) isFsharp60Supported :> _
+                if checkIsNotLazy replaceCandidate then
+                    tryCreateWarning LambdaCanBeSimplifiedWarning (lambda, replaceCandidate) isFsharp60Supported :> _
+                else null
             | _ ->
 
             if pats.Count = 1 then
