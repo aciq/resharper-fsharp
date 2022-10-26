@@ -185,7 +185,7 @@ type LambdaAnalyzer() =
             | _ -> ctor arg
         | _ -> ctor arg
 
-    let rec checkIsNotLazy (expression: IFSharpExpression) =
+    let rec checkIsLazy (expression: IFSharpExpression) =
         let rec checkIsNotLazyInternal (parentExpr: IFSharpExpression) (expression: IFSharpExpression) =
             match expression.IgnoreInnerParens() with
             | null
@@ -232,11 +232,11 @@ type LambdaAnalyzer() =
         let warning: IHighlighting =
             match compareArgs pats expr with
             | true, true, replaceCandidate ->
-                if checkIsNotLazy replaceCandidate then
+                if checkIsLazy replaceCandidate then
                     tryCreateWarning LambdaCanBeReplacedWithInnerExpressionWarning (lambda, replaceCandidate) isFsharp60Supported :> _
                 else null
             | true, false, replaceCandidate ->
-                if checkIsNotLazy replaceCandidate then
+                if checkIsLazy replaceCandidate then
                     tryCreateWarning LambdaCanBeSimplifiedWarning (lambda, replaceCandidate) isFsharp60Supported :> _
                 else null
             | _ ->
