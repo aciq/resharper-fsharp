@@ -205,9 +205,10 @@ type LambdaAnalyzer() =
                 checkIsNotLazyInternal expr expr.LeftArgument &&
                 checkIsNotLazyInternal expr expr.RightArgument
             | :? IReferenceExpr as expr ->
+               isNull expr.Qualifier ||
                match expr.Reference.GetFcsSymbol() with
-               | :? FSharpMemberOrFunctionOrValue as m ->
-                   not (m.IsProperty || m.IsMethod && parentExpr :? IPrefixAppExpr)
+               | :? FSharpMemberOrFunctionOrValue as m when
+                   (m.IsProperty || m.IsMethod && parentExpr :? IPrefixAppExpr) -> false
                | _ -> checkIsNotLazyInternal expr expr.Qualifier
             | _ -> false
 
