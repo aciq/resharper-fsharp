@@ -210,18 +210,22 @@ type LambdaAnalyzer() =
                 let rootPrefixApp = getOuterPrefixAppFromFunctionExpr expr
                 checkIsLazyInternal expr rootPrefixApp.InvokedExpression &&
                 rootPrefixApp.AppliedExpressions |> Seq.forall (checkIsLazyInternal null)
-            | :? IBinaryAppExpr as expr ->
+            | :? IBinaryAppExpr as expr -> //TODO: false
                 checkIsLazyInternal expr expr.LeftArgument &&
                 checkIsLazyInternal expr expr.RightArgument
             | :? IReferenceExpr as expr ->
                //isNull expr.Qualifier ||
                match expr.Reference.GetFcsSymbol() with
+               //TODO: проверить делегаты
+               //TODO: что насчет автопропертей? Сложные проперти
+               //ЭКСЕПШЕНЫ
                | :? FSharpMemberOrFunctionOrValue as m when
-                   (m.IsProperty || m.IsMethod && context :? IPrefixAppExpr) -> false
+                   (m.IsProperty || (m.IsMethod || m.IsConstructor) && context :? IAppExpr) -> false
+               | :? FSharpUnionCase when (context :? IAppExpr) -> false
                | :? FSharpMemberOrFunctionOrValue as m when
                    (m.IsFunction &&
                     context :? IPrefixAppExpr &&
-                    m.CurriedParameterGroups.Count = context.As<IPrefixAppExpr>().Arguments.Count) -> false
+                    m.CurriedParameterGroups.Count <= (*важно для CE*)context.As<IPrefixAppExpr>().Arguments.Count) -> false
                | _ -> checkIsLazyInternal expr expr.Qualifier
             | _ -> false
 
