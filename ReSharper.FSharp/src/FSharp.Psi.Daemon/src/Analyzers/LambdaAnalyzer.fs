@@ -185,34 +185,47 @@ type LambdaAnalyzer() =
             | _ -> ctor arg
         | _ -> ctor arg
 
+    //TODO: move to utils
+    let getOuterPrefixAppFromFunctionExpr prefixApp =
+        let rec loop (expr: IPrefixAppExpr) =
+            match PrefixAppExprNavigator.GetByFunctionExpression(expr) with
+            | null -> expr
+            | prefixAppExpr -> loop prefixAppExpr
+        loop prefixApp
+
     let rec checkIsLazy (expression: IFSharpExpression) =
-        let rec checkIsNotLazyInternal (parentExpr: IFSharpExpression) (expression: IFSharpExpression) =
+        let rec checkIsLazyInternal (context: IFSharpExpression) (expression: IFSharpExpression) =
             match expression.IgnoreInnerParens() with
             | null
             | :? IUnitExpr
             | :? ILambdaExpr
             | :? ILiteralExpr -> true
             | :? IIfThenElseExpr as expr ->
-                checkIsNotLazyInternal expr expr.ConditionExpr &&
-                checkIsNotLazyInternal expr expr.ThenExpr &&
-                checkIsNotLazyInternal expr expr.ElseExpr
+                checkIsLazyInternal expr expr.ConditionExpr &&
+                checkIsLazyInternal expr expr.ThenExpr &&
+                checkIsLazyInternal expr expr.ElseExpr
             | :? ITupleExpr as expr ->
-                expr.ExpressionsEnumerable |> Seq.forall (checkIsNotLazyInternal expr)
+                expr.ExpressionsEnumerable |> Seq.forall (checkIsLazyInternal expr)
             | :? IPrefixAppExpr as expr ->
-                checkIsNotLazyInternal expr expr.FunctionExpression &&
-                checkIsNotLazyInternal expr expr.ArgumentExpression
+                let rootPrefixApp = getOuterPrefixAppFromFunctionExpr expr
+                checkIsLazyInternal expr rootPrefixApp.InvokedExpression &&
+                rootPrefixApp.AppliedExpressions |> Seq.forall (checkIsLazyInternal null)
             | :? IBinaryAppExpr as expr ->
-                checkIsNotLazyInternal expr expr.LeftArgument &&
-                checkIsNotLazyInternal expr expr.RightArgument
+                checkIsLazyInternal expr expr.LeftArgument &&
+                checkIsLazyInternal expr expr.RightArgument
             | :? IReferenceExpr as expr ->
-               isNull expr.Qualifier ||
+               //isNull expr.Qualifier ||
                match expr.Reference.GetFcsSymbol() with
                | :? FSharpMemberOrFunctionOrValue as m when
-                   (m.IsProperty || m.IsMethod && parentExpr :? IPrefixAppExpr) -> false
-               | _ -> checkIsNotLazyInternal expr expr.Qualifier
+                   (m.IsProperty || m.IsMethod && context :? IPrefixAppExpr) -> false
+               | :? FSharpMemberOrFunctionOrValue as m when
+                   (m.IsFunction &&
+                    context :? IPrefixAppExpr &&
+                    m.CurriedParameterGroups.Count = context.As<IPrefixAppExpr>().Arguments.Count) -> false
+               | _ -> checkIsLazyInternal expr expr.Qualifier
             | _ -> false
 
-        checkIsNotLazyInternal null expression
+        checkIsLazyInternal null expression
 
     let isApplicable (expr: IFSharpExpression) (pats: TreeNodeCollection<IFSharpPattern>) =
         match expr with
