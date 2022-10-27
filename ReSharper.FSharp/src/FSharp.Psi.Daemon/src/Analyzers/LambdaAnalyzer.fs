@@ -11,6 +11,7 @@ open JetBrains.ReSharper.Plugins.FSharp.Psi.Features.Util.FSharpResolveUtil
 open JetBrains.ReSharper.Plugins.FSharp.Psi.Impl
 open JetBrains.ReSharper.Plugins.FSharp.Psi.Tree
 open JetBrains.ReSharper.Plugins.FSharp.Util.FSharpSymbolUtil
+open JetBrains.ReSharper.Psi
 open JetBrains.ReSharper.Psi.ExtensionsAPI
 open JetBrains.ReSharper.Psi.Tree
 open JetBrains.Util
@@ -194,42 +195,68 @@ type LambdaAnalyzer() =
         loop prefixApp
 
     let rec checkIsLazy (expression: IFSharpExpression) =
-        let rec checkIsLazyInternal (context: IFSharpExpression) (expression: IFSharpExpression) =
-            match expression.IgnoreInnerParens() with
-            | null
-            | :? IUnitExpr
-            | :? ILambdaExpr
-            | :? ILiteralExpr -> true
-            | :? IIfThenElseExpr as expr ->
-                checkIsLazyInternal expr expr.ConditionExpr &&
-                checkIsLazyInternal expr expr.ThenExpr &&
-                checkIsLazyInternal expr expr.ElseExpr
-            | :? ITupleExpr as expr ->
-                expr.ExpressionsEnumerable |> Seq.forall (checkIsLazyInternal expr)
-            | :? IPrefixAppExpr as expr ->
-                let rootPrefixApp = getOuterPrefixAppFromFunctionExpr expr
-                checkIsLazyInternal expr rootPrefixApp.InvokedExpression &&
-                rootPrefixApp.AppliedExpressions |> Seq.forall (checkIsLazyInternal null)
-            | :? IBinaryAppExpr as expr -> //TODO: false
-                checkIsLazyInternal expr expr.LeftArgument &&
-                checkIsLazyInternal expr expr.RightArgument
-            | :? IReferenceExpr as expr ->
-               //isNull expr.Qualifier ||
-               match expr.Reference.GetFcsSymbol() with
+        let mutable checkFailed = false
+        let checkReferenceExpr (ref: IReferenceExpr) (argsCount: int voption) =
+            //isNull expr.Qualifier ||
+           checkFailed <-
+               match ref.Reference.GetFcsSymbol() with
                //TODO: проверить делегаты
                //TODO: что насчет автопропертей? Сложные проперти
                //ЭКСЕПШЕНЫ
-               | :? FSharpMemberOrFunctionOrValue as m when
-                   (m.IsProperty || (m.IsMethod || m.IsConstructor) && context :? IAppExpr) -> false
-               | :? FSharpUnionCase when (context :? IAppExpr) -> false
+               | :? FSharpMemberOrFunctionOrValue as m when m.IsProperty || m.IsTypeFunction -> true
+               | :? FSharpMemberOrFunctionOrValue as m when ((m.IsMethod || m.IsConstructor) && argsCount.IsSome) -> true
+               | :? FSharpUnionCase when argsCount.IsSome -> true
                | :? FSharpMemberOrFunctionOrValue as m when
                    (m.IsFunction &&
-                    context :? IPrefixAppExpr &&
-                    m.CurriedParameterGroups.Count <= (*важно для CE*)context.As<IPrefixAppExpr>().Arguments.Count) -> false
-               | _ -> checkIsLazyInternal expr expr.Qualifier
-            | _ -> false
+                    argsCount.IsSome &&
+                    m.CurriedParameterGroups.Count <= argsCount.Value) -> true
+               | _ -> false
 
-        checkIsLazyInternal null expression
+        let processor =
+            { new IRecursiveElementProcessor with
+                member x.ProcessingIsFinished = checkFailed
+                member x.InteriorShouldBeProcessed(treeNode) = not (treeNode :? ILambdaExpr)
+                member x.ProcessAfterInterior(treeNode) = ()
+                member x.ProcessBeforeInterior(treeNode) =
+                    match treeNode with
+                    | :? INewExpr
+                    | :? IForLikeExpr
+                    | :? IBinaryAppExpr -> checkFailed <- true
+                    | :? IPrefixAppExpr as prefixAppExpr ->
+                        if isNotNull (PrefixAppExprNavigator.GetByFunctionExpression(prefixAppExpr)) then () else
+
+                        match prefixAppExpr.InvokedExpression with
+                        | :? IReferenceExpr as referenceExpr ->
+                            checkReferenceExpr referenceExpr (ValueSome(prefixAppExpr.Arguments.Count))
+                        | _ -> ()
+                    | :? IReferenceExpr as referenceExpr ->
+                        checkReferenceExpr referenceExpr ValueNone
+                    | _ -> ()
+            }
+
+        expression.ProcessThisAndDescendants(processor)
+        not checkFailed
+        // let rec checkIsLazyInternal (context: IFSharpExpression) (expression: IFSharpExpression) =
+        //     match expression.IgnoreInnerParens() with
+        //     | :? IPrefixAppExpr as expr ->
+        //         let rootPrefixApp = getOuterPrefixAppFromFunctionExpr expr
+        //         checkIsLazyInternal expr rootPrefixApp.InvokedExpression &&
+        //         rootPrefixApp.AppliedExpressions |> Seq.forall (checkIsLazyInternal null)
+        //     | :? IReferenceExpr as expr ->
+        //        //isNull expr.Qualifier ||
+        //        match expr.Reference.GetFcsSymbol() with
+        //        //TODO: проверить делегаты
+        //        //TODO: что насчет автопропертей? Сложные проперти
+        //        //ЭКСЕПШЕНЫ
+        //        | :? FSharpMemberOrFunctionOrValue as m when
+        //            (m.IsProperty || (m.IsMethod || m.IsConstructor) && context :? IAppExpr) -> false
+        //        | :? FSharpUnionCase when (context :? IAppExpr) -> false
+        //        | :? FSharpMemberOrFunctionOrValue as m when
+        //            (m.IsFunction &&
+        //             context :? IPrefixAppExpr &&
+        //             m.CurriedParameterGroups.Count <= (*важно для CE*)context.As<IPrefixAppExpr>().Arguments.Count) -> false
+        //        | _ -> checkIsLazyInternal expr expr.Qualifier
+        //     | _ -> false
 
     let isApplicable (expr: IFSharpExpression) (pats: TreeNodeCollection<IFSharpPattern>) =
         match expr with
