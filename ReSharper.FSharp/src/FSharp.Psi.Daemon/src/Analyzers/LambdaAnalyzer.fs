@@ -186,14 +186,6 @@ type LambdaAnalyzer() =
             | _ -> ctor arg
         | _ -> ctor arg
 
-    //TODO: move to utils
-    let getOuterPrefixAppFromFunctionExpr prefixApp =
-        let rec loop (expr: IPrefixAppExpr) =
-            match PrefixAppExprNavigator.GetByFunctionExpression(expr) with
-            | null -> expr
-            | prefixAppExpr -> loop prefixAppExpr
-        loop prefixApp
-
     let rec checkIsLazy (expression: IFSharpExpression) =
         let mutable checkFailed = false
         let checkReferenceExpr (ref: IReferenceExpr) (argsCount: int voption) =
@@ -236,27 +228,6 @@ type LambdaAnalyzer() =
 
         expression.ProcessThisAndDescendants(processor)
         not checkFailed
-        // let rec checkIsLazyInternal (context: IFSharpExpression) (expression: IFSharpExpression) =
-        //     match expression.IgnoreInnerParens() with
-        //     | :? IPrefixAppExpr as expr ->
-        //         let rootPrefixApp = getOuterPrefixAppFromFunctionExpr expr
-        //         checkIsLazyInternal expr rootPrefixApp.InvokedExpression &&
-        //         rootPrefixApp.AppliedExpressions |> Seq.forall (checkIsLazyInternal null)
-        //     | :? IReferenceExpr as expr ->
-        //        //isNull expr.Qualifier ||
-        //        match expr.Reference.GetFcsSymbol() with
-        //        //TODO: проверить делегаты
-        //        //TODO: что насчет автопропертей? Сложные проперти
-        //        //ЭКСЕПШЕНЫ
-        //        | :? FSharpMemberOrFunctionOrValue as m when
-        //            (m.IsProperty || (m.IsMethod || m.IsConstructor) && context :? IAppExpr) -> false
-        //        | :? FSharpUnionCase when (context :? IAppExpr) -> false
-        //        | :? FSharpMemberOrFunctionOrValue as m when
-        //            (m.IsFunction &&
-        //             context :? IPrefixAppExpr &&
-        //             m.CurriedParameterGroups.Count <= (*важно для CE*)context.As<IPrefixAppExpr>().Arguments.Count) -> false
-        //        | _ -> checkIsLazyInternal expr expr.Qualifier
-        //     | _ -> false
 
     let isApplicable (expr: IFSharpExpression) (pats: TreeNodeCollection<IFSharpPattern>) =
         match expr with
