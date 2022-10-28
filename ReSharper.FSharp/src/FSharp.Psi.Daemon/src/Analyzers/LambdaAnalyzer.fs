@@ -195,6 +195,7 @@ type LambdaAnalyzer() =
                //TODO: проверить делегаты
                //TODO: что насчет автопропертей? Сложные проперти
                //ЭКСЕПШЕНЫ
+               | x when x == null -> true
                | :? FSharpMemberOrFunctionOrValue as m when m.IsProperty || m.IsTypeFunction -> true
                | :? FSharpMemberOrFunctionOrValue as m when ((m.IsMethod || m.IsConstructor) && argsCount.IsSome) -> true
                | :? FSharpUnionCase when argsCount.IsSome -> true
@@ -204,8 +205,8 @@ type LambdaAnalyzer() =
                     m.CurriedParameterGroups.Count <= argsCount.Value) -> true
                | _ -> false
 
-        let processor =
-            { new IRecursiveElementProcessor with
+        let processor = {
+            new IRecursiveElementProcessor with
                 member x.ProcessingIsFinished = checkFailed
                 member x.InteriorShouldBeProcessed(treeNode) = not (treeNode :? ILambdaExpr)
                 member x.ProcessAfterInterior(treeNode) = ()
@@ -213,11 +214,13 @@ type LambdaAnalyzer() =
                     match treeNode with
                     | :? INewExpr
                     | :? IForLikeExpr
+                    | :? IIndexerExpr
                     | :? IBinaryAppExpr -> checkFailed <- true
+                    | :? IPrefixAppExpr as prefixAppExpr when prefixAppExpr.IsIndexerLike -> checkFailed <- true
                     | :? IPrefixAppExpr as prefixAppExpr ->
                         if isNotNull (PrefixAppExprNavigator.GetByFunctionExpression(prefixAppExpr)) then () else
 
-                        match prefixAppExpr.InvokedExpression with
+                        match prefixAppExpr.InvokedExpression.IgnoreInnerParens() with
                         | :? IReferenceExpr as referenceExpr ->
                             checkReferenceExpr referenceExpr (ValueSome(prefixAppExpr.Arguments.Count))
                         | _ -> ()
