@@ -186,23 +186,25 @@ type LambdaAnalyzer() =
             | _ -> ctor arg
         | _ -> ctor arg
 
-    let rec checkIsLazy (expression: IFSharpExpression) =
-        let mutable checkFailed = false
-        let checkReferenceExpr (ref: IReferenceExpr) (argsCount: int voption) =
-           checkFailed <-
-               match ref.Reference.GetFcsSymbol() with
-               | x when x == null -> true
-               | :? FSharpMemberOrFunctionOrValue as m when m.IsProperty || m.IsTypeFunction || m.IsMutable -> true
-               | :? FSharpMemberOrFunctionOrValue as m when m.IsFunction || m.IsMethod || m.IsConstructor ->
-                   match argsCount with
-                   | ValueSome x -> m.CurriedParameterGroups.Count <= x
-                   | ValueNone -> false
-               | :? FSharpUnionCase when argsCount.IsSome -> true // CHECK
-               | _ -> false
+    let rec containsForcedCalculations (expression: IFSharpExpression) =
+        let mutable containsForcedCalculations = false
+
+        let checkReferenceExpr (ref: IReferenceExpr) argsCount =
+            containsForcedCalculations <-
+                match ref.Reference.GetFcsSymbol() with
+                | x when x == null -> true
+                | :? FSharpMemberOrFunctionOrValue as m when m.IsProperty || m.IsTypeFunction || m.IsMutable -> true
+                | :? FSharpMemberOrFunctionOrValue as m when m.IsFunction || m.IsMethod || m.IsConstructor ->
+                    match argsCount with
+                    | ValueSome count -> m.CurriedParameterGroups.Count <= count
+                    | ValueNone -> false
+                | :? FSharpEntity as e when e.IsDelegate -> true
+                | :? FSharpUnionCase when argsCount.IsSome -> true
+                | _ -> false
 
         let processor = {
             new IRecursiveElementProcessor with
-                member x.ProcessingIsFinished = checkFailed
+                member x.ProcessingIsFinished = containsForcedCalculations
                 member x.InteriorShouldBeProcessed(treeNode) = not (treeNode :? ILambdaExpr)
                 member x.ProcessAfterInterior(treeNode) = ()
                 member x.ProcessBeforeInterior(treeNode) =
@@ -210,14 +212,14 @@ type LambdaAnalyzer() =
                     | :? INewExpr
                     | :? IForLikeExpr
                     | :? IIndexerExpr
-                    | :? IBinaryAppExpr -> checkFailed <- true
-                    | :? IPrefixAppExpr as prefixAppExpr when prefixAppExpr.IsIndexerLike -> checkFailed <- true
+                    | :? IBinaryAppExpr -> containsForcedCalculations <- true
+                    | :? IPrefixAppExpr as prefixAppExpr when prefixAppExpr.IsIndexerLike -> containsForcedCalculations <- true
                     | :? IPrefixAppExpr as prefixAppExpr ->
                         if isNotNull (PrefixAppExprNavigator.GetByFunctionExpression(prefixAppExpr)) then () else
 
                         match prefixAppExpr.InvokedExpression.IgnoreInnerParens() with
                         | :? IReferenceExpr as referenceExpr ->
-                            checkReferenceExpr referenceExpr (ValueSome(prefixAppExpr.Arguments.Count))
+                            checkReferenceExpr referenceExpr (ValueSome(prefixAppExpr.AppliedExpressions.Count))
                         | _ -> ()
                     | :? IReferenceExpr as referenceExpr ->
                         checkReferenceExpr referenceExpr ValueNone
@@ -225,7 +227,7 @@ type LambdaAnalyzer() =
             }
 
         expression.ProcessThisAndDescendants(processor)
-        not checkFailed
+        containsForcedCalculations
 
     let isApplicable (expr: IFSharpExpression) (pats: TreeNodeCollection<IFSharpPattern>) =
         match expr with
@@ -245,13 +247,10 @@ type LambdaAnalyzer() =
         let warning: IHighlighting =
             match compareArgs pats expr with
             | true, true, replaceCandidate ->
-                if checkIsLazy replaceCandidate then
-                    tryCreateWarning LambdaCanBeReplacedWithInnerExpressionWarning (lambda, replaceCandidate) isFsharp60Supported :> _
-                else null
+                if containsForcedCalculations replaceCandidate then null else
+                tryCreateWarning LambdaCanBeReplacedWithInnerExpressionWarning (lambda, replaceCandidate) isFsharp60Supported :> _
             | true, false, replaceCandidate ->
-                if checkIsLazy replaceCandidate then
-                    tryCreateWarning LambdaCanBeSimplifiedWarning (lambda, replaceCandidate) isFsharp60Supported :> _
-                else null
+                tryCreateWarning LambdaCanBeSimplifiedWarning (lambda, replaceCandidate) isFsharp60Supported :> _
             | _ ->
 
             if pats.Count = 1 then
