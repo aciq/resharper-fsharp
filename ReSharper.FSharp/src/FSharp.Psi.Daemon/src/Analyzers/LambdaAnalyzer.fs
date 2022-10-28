@@ -189,20 +189,15 @@ type LambdaAnalyzer() =
     let rec checkIsLazy (expression: IFSharpExpression) =
         let mutable checkFailed = false
         let checkReferenceExpr (ref: IReferenceExpr) (argsCount: int voption) =
-            //isNull expr.Qualifier ||
            checkFailed <-
                match ref.Reference.GetFcsSymbol() with
-               //TODO: проверить делегаты
-               //TODO: что насчет автопропертей? Сложные проперти
-               //ЭКСЕПШЕНЫ
                | x when x == null -> true
-               | :? FSharpMemberOrFunctionOrValue as m when m.IsProperty || m.IsTypeFunction -> true
-               | :? FSharpMemberOrFunctionOrValue as m when ((m.IsMethod || m.IsConstructor) && argsCount.IsSome) -> true
-               | :? FSharpUnionCase when argsCount.IsSome -> true
-               | :? FSharpMemberOrFunctionOrValue as m when
-                   (m.IsFunction &&
-                    argsCount.IsSome &&
-                    m.CurriedParameterGroups.Count <= argsCount.Value) -> true
+               | :? FSharpMemberOrFunctionOrValue as m when m.IsProperty || m.IsTypeFunction || m.IsMutable -> true
+               | :? FSharpMemberOrFunctionOrValue as m when m.IsFunction || m.IsMethod || m.IsConstructor ->
+                   match argsCount with
+                   | ValueSome x -> m.CurriedParameterGroups.Count <= x
+                   | ValueNone -> false
+               | :? FSharpUnionCase when argsCount.IsSome -> true // CHECK
                | _ -> false
 
         let processor = {
